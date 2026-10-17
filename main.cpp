@@ -85,26 +85,30 @@ void print_tree(struct Node* r)
     print_tree_helper(r, "", -1);
 }
 
-struct Node* search_tree(struct Node* root, int key, int* depth)
+void find_all_depths(struct Node* root, int key, int current_depth, int* depths, int* count)
 {
-    if (root == NULL) return NULL;
-    (*depth)++;
-    if (root->data == key) return root;
-    if (key < root->data)
-        return search_tree(root->left, key, depth);
+    if (root == NULL) return;
+    if (key == root->data)
+    {
+        depths[(*count)++] = current_depth;
+        find_all_depths(root->right, key, current_depth + 1, depths, count);
+    }
+    else if (key < root->data)
+    {
+        find_all_depths(root->left, key, current_depth + 1, depths, count);
+    }
     else
-        return search_tree(root->right, key, depth);
+    {
+        find_all_depths(root->right, key, current_depth + 1, depths, count);
+    }
 }
 
-int count_occurrences(struct Node* root, int key)
+void collect_values(struct Node* r, int* arr, int* count)
 {
-    if (root == NULL) return 0;
-    int count = (root->data == key) ? 1 : 0;
-    if (key < root->data)
-        count += count_occurrences(root->left, key);
-    else
-        count += count_occurrences(root->right, key);
-    return count;
+    if (r == NULL) return;
+    arr[(*count)++] = r->data;
+    collect_values(r->left, arr, count);
+    collect_values(r->right, arr, count);
 }
 
 void free_tree(struct Node* root)
@@ -113,6 +117,75 @@ void free_tree(struct Node* root)
     free_tree(root->left);
     free_tree(root->right);
     free(root);
+}
+
+struct Node* detach_node(struct Node* root, int key, struct Node** target)
+{
+    if (root == NULL) return NULL;
+    if (root->data == key && *target == NULL)
+    {
+        *target = root;
+        return NULL;
+    }
+    if (key < root->data)
+        root->left = detach_node(root->left, key, target);
+    else
+        root->right = detach_node(root->right, key, target);
+    return root;
+}
+
+struct Node* modify_node_value(struct Node* root, int old_val, int new_val, int* status)
+{
+    int dummy_depths[10];
+    int count = 0;
+    find_all_depths(root, old_val, 0, dummy_depths, &count);
+    if (count == 0)
+    {
+        *status = 1;
+        return root;
+    }
+
+    if (old_val == new_val)
+    {
+        *status = 2;
+        return root;
+    }
+
+    count = 0;
+    find_all_depths(root, new_val, 0, dummy_depths, &count);
+    if (count > 0)
+    {
+        *status = 3;
+        return root;
+    }
+
+    struct Node* target = NULL;
+    root = detach_node(root, old_val, &target);
+    if (target == NULL)
+    {
+        *status = 1;
+        return root;
+    }
+
+    int* desc_vals = (int*)malloc(2048 * sizeof(int));
+    if (desc_vals == NULL) exit(1);
+    int desc_count = 0;
+    collect_values(target->left, desc_vals, &desc_count);
+    collect_values(target->right, desc_vals, &desc_count);
+
+    free_tree(target);
+
+    for (int i = 0; i < desc_count; i++)
+    {
+        int added = 0;
+        root = CreateTreeUnique(root, desc_vals[i], &added);
+    }
+    free(desc_vals);
+
+    int added = 0;
+    root = CreateTreeUnique(root, new_val, &added);
+    *status = 0;
+    return root;
 }
 
 int main(void)
@@ -171,7 +244,15 @@ int main(void)
             printf("\nМеню операций:\n");
             printf("1 - Поиск элемента\n");
             printf("2 - Добавление 1 элемента\n");
-            printf("3 - Выход к выбору дерева\n");
+            if (tree_mode == 2)
+            {
+                printf("3 - Изменение значения узла\n");
+                printf("4 - Выход к выбору дерева\n");
+            }
+            else
+            {
+                printf("3 - Выход к выбору дерева\n");
+            }
             printf("Ваш выбор: ");
             if (scanf("%d", &op) != 1)
                 break;
@@ -182,17 +263,30 @@ int main(void)
                 printf("Введите значение для поиска: ");
                 if (scanf("%d", &key) != 1)
                     continue;
-                int depth = 0;
-                struct Node* found = search_tree(root, key, &depth);
-                if (found != NULL)
-                {
-                    int occurrences = count_occurrences(root, key);
-                    printf("Элемент %d найден на глубине %d. Количество вхождений: %d\n", key, depth, occurrences);
-                }
-                else
+
+                int* depths = (int*)malloc((n + 100) * sizeof(int));
+                if (depths == NULL) continue;
+                int count = 0;
+                find_all_depths(root, key, 0, depths, &count);
+
+                if (count == 0)
                 {
                     printf("Элемент %d не найден в дереве.\n", key);
                 }
+                else if (count == 1)
+                {
+                    printf("Элемент %d найден на глубине %d. Количество вхождений: 1\n", key, depths[0]);
+                }
+                else
+                {
+                    printf("Элемент %d найден (вхождений: %d). Глубины: ", key, count);
+                    for (int i = 0; i < count; i++)
+                    {
+                        printf("%d%s", depths[i], (i == count - 1) ? "" : ", ");
+                    }
+                    printf("\n");
+                }
+                free(depths);
             }
             else if (op == 2)
             {
@@ -203,6 +297,7 @@ int main(void)
                 if (tree_mode == 1)
                 {
                     root = CreateTree(root, val);
+                    n++;
                     printf("Элемент %d добавлен.\n", val);
                 }
                 else
@@ -210,14 +305,50 @@ int main(void)
                     int added = 0;
                     root = CreateTreeUnique(root, val, &added);
                     if (added)
+                    {
+                        n++;
                         printf("Элемент %d успешно добавлен.\n", val);
+                    }
                     else
+                    {
                         printf("Элемент %d уже существует (повтор исключен).\n", val);
+                    }
                 }
                 printf("\nОбновленное дерево:\n");
                 print_tree(root);
             }
-            else if (op == 3)
+            else if (tree_mode == 2 && op == 3)
+            {
+                int old_val, new_val;
+                printf("Введите значение узла для изменения: ");
+                if (scanf("%d", &old_val) != 1)
+                    continue;
+                printf("Введите новое значение: ");
+                if (scanf("%d", &new_val) != 1)
+                    continue;
+
+                int status = 0;
+                root = modify_node_value(root, old_val, new_val, &status);
+                if (status == 0)
+                {
+                    printf("Значение узла %d изменено на %d.\n", old_val, new_val);
+                    printf("\nОбновленное дерево:\n");
+                    print_tree(root);
+                }
+                else if (status == 1)
+                {
+                    printf("Элемент %d не найден в дереве.\n", old_val);
+                }
+                else if (status == 2)
+                {
+                    printf("Новое значение совпадает со старым.\n");
+                }
+                else if (status == 3)
+                {
+                    printf("Элемент %d уже существует в дереве (повтор исключен).\n", new_val);
+                }
+            }
+            else if ((tree_mode == 1 && op == 3) || (tree_mode == 2 && op == 4))
             {
                 break;
             }
